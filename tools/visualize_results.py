@@ -7,8 +7,9 @@ import argparse
 import yaml
 from easydict import EasyDict as edict
 
+# 导入数据加载器以获取标准化参数
+from data.aircraft.data_loader import AircraftTrajectoryDataset
 
-# 假设 matplotlib, numpy, torch, pyyaml, easydict 已经安装
 
 def load_config(config_path):
     """加载YAML配置文件并转换为易于访问的edict对象 (与train.py保持一致)"""
@@ -31,9 +32,30 @@ def load_config(config_path):
         exit()
 
 
+def get_normalization_params(args):
+    """通过实例化 Dataset 来获取 data_mean 和 data_std"""
+    # 注意: 这会重新执行数据清洗和测试集参数计算，以确保参数正确。
+    try:
+        print("--- 正在加载数据集以获取标准化参数 (将执行一次数据清洗和标准化) ---")
+        temp_dataset = AircraftTrajectoryDataset(
+            csv_path=args.data_csv_path,
+            seq_len=args.seq_len,
+            label_len=args.label_len,
+            pred_len=args.pred_len,
+            mode='test',
+            scale=True,
+            speed_min=args.speed_min,
+            speed_max=args.speed_max
+        )
+        return temp_dataset.data_mean, temp_dataset.data_std
+    except Exception as e:
+        print(f"Error loading normalization parameters: {e}")
+        return None, None
+
+
 def visualize_predictions(preds_file, trues_file, output_path, config_args):
     """
-    加载预测和真实值数据，并进行可视化
+    加载预测和真实值数据，并进行轨迹可视化（包含 3D 轨迹和关键特征时间序列）
 
     :param preds_file: 预测值文件路径 (predictions.pt)
     :param trues_file: 真实值文件路径 (ground_truth.pt)
@@ -45,72 +67,121 @@ def visualize_predictions(preds_file, trues_file, output_path, config_args):
         return
 
     try:
-        preds = torch.load(preds_file)
-        trues = torch.load(trues_file)
+        # 加载标准化后的预测结果 (列表转换为 NumPy 数组)
+        preds_normalized = torch.cat(torch.load(preds_file), dim=0).numpy()
+        trues_normalized = torch.cat(torch.load(trues_file), dim=0).numpy()
     except Exception as e:
         print(f"加载数据文件时出错: {e}")
         return
 
-    # 将列表转换为 NumPy 数组
-    preds = torch.cat(preds, dim=0).numpy()
-    trues = torch.cat(trues, dim=0).numpy()
+    # 获取反标准化参数
+    data_mean, data_std = get_normalization_params(config_args)
+    if data_mean is None:
+        print("无法进行可视化：未能获取标准化参数。")
+        return
 
-    print(f"加载预测数据形状: {preds.shape}")
-    print(f"加载真实数据形状: {trues.shape}")
+    # 1. 反标准化数据
+    preds_denorm = preds_normalized * data_std + data_mean
+    trues_denorm = trues_normalized * data_std + data_mean
 
-    # 结果分析
-    # preds, trues 的形状为 (N_samples, pred_len, C_out=4)
-    pred_len = preds.shape[1]
+    print(f"加载预测数据形状: {preds_normalized.shape}")
+    print(f"加载真实数据形状: {trues_normalized.shape}")
 
-    # 假设预测值包含：[纬度, 经度, 几何高度, 气压高度]
-    feature_names = ['Latitude', 'Longitude', 'Geo Altitude', 'Baro Altitude']
+    pred_len = config_args.pred_len
+    # 假设特征顺序: [纬度, 经度, 几何高度, 气压高度]
+    feature_names = ['Latitude (°)', 'Longitude (°)', 'Geo Altitude (m)', 'Baro Altitude (m)']
 
-    # 计算整体性能指标（这里简单计算一下，详细指标应在test.py中进行）
-    mae = np.mean(np.abs(preds - trues))
-    mse = np.mean((preds - trues) ** 2)
-    rmse = np.sqrt(mse)
+    # 计算 RMSE (使用标准化后的数据，与 train.py 保持一致)
+    rmse = np.sqrt(np.mean((preds_normalized - trues_normalized) ** 2))
+
     print(f"\n--- 整体性能指标 ---")
-    print(f"MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
+    print(f"Normalized RMSE: {rmse:.4f}")
     print("--------------------")
 
     # --- 绘图逻辑 ---
 
-    # 随机选取 3 个样本进行可视化
-    N_samples = preds.shape[0]
-    num_plots = min(N_samples, 3)
+    # 随机选取 1 个样本进行详细可视化
+    N_samples = preds_denorm.shape[0]
+    sample_idx = np.random.randint(0, N_samples)
 
-    fig, axes = plt.subplots(num_plots, preds.shape[2], figsize=(18, 5 * num_plots))
-    if num_plots == 1:
-        # 当只有一行图时，axes需要特殊处理
-        axes = [axes]
+    # 设置 2x2 子图布局
+    fig = plt.figure(figsize=(15, 12))
+    plt.rcParams.update({'font.size': 10})
 
-    for i in range(num_plots):
-        sample_idx = np.random.randint(0, N_samples)
-
-        for j in range(preds.shape[2]):
-            # 第 i 个样本的第 j 个特征
-            ax = axes[i][j]
-
-            # 预测值 (仅 pred_len 长度)
-            pred_sequence = preds[sample_idx, :, j]
-            # 真实值 (仅 pred_len 长度)
-            true_sequence = trues[sample_idx, :, j]
-
-            time_steps = np.arange(pred_len)
-
-            ax.plot(time_steps, true_sequence, label='Ground Truth', marker='o', linestyle='-', color='blue', alpha=0.7)
-            ax.plot(time_steps, pred_sequence, label='Prediction', marker='x', linestyle='--', color='red', alpha=0.8)
-
-            ax.set_title(f'Sample {sample_idx + 1} | {feature_names[j]} Forecast (L_y={pred_len})', fontsize=12)
-            ax.set_xlabel('Time Steps (Future)')
-            ax.set_ylabel(f'{feature_names[j]} (Normalized)')
-            ax.legend()
-            ax.grid(True, linestyle='--', alpha=0.6)
-
-    plt.tight_layout()
     plt.suptitle(
-        f"Informer Trajectory Prediction Results (L_x={config_args.seq_len}, L_y={config_args.pred_len})\nRMSE: {rmse:.4f}",
-        y=1.02, fontsize=16, fontweight='bold')
+        f"Informer Trajectory Prediction (Sample {sample_idx + 1}) | Input L={config_args.seq_len}, Pred L={pred_len}\nNormalized RMSE: {rmse:.4f}",
+        y=1.00, fontsize=16, fontweight='bold')
+
+    # 准备数据
+    lat_true = trues_denorm[sample_idx, :, 0]
+    lon_true = trues_denorm[sample_idx, :, 1]
+    geo_alt_true = trues_denorm[sample_idx, :, 2]
+    baro_alt_true = trues_denorm[sample_idx, :, 3]
+
+    lat_pred = preds_denorm[sample_idx, :, 0]
+    lon_pred = preds_denorm[sample_idx, :, 1]
+    geo_alt_pred = preds_denorm[sample_idx, :, 2]
+    baro_alt_pred = preds_denorm[sample_idx, :, 3]
+
+    time_steps = np.arange(pred_len)
+
+    # --- Subplot 1: 3D Trajectory (Lon, Lat, Geo Alt) ---
+    ax_3d = fig.add_subplot(2, 2, 1, projection='3d')
+
+    # 绘制真实轨迹
+    ax_3d.plot(lon_true, lat_true, geo_alt_true,
+               label='Ground Truth', marker='o', linestyle='-', color='blue', alpha=0.7)
+    # 绘制预测轨迹
+    ax_3d.plot(lon_pred, lat_pred, geo_alt_pred,
+               label='Prediction', marker='x', linestyle='--', color='red', alpha=0.8)
+
+    # 突出起点
+    ax_3d.scatter(lon_true[0], lat_true[0], geo_alt_true[0],
+                  marker='s', color='green', s=100, label='Start Point')
+
+    ax_3d.set_title('3D Trajectory Prediction (Geo Altitude)', fontsize=14)
+    ax_3d.set_xlabel(feature_names[1])  # Longitude
+    ax_3d.set_ylabel(feature_names[0])  # Latitude
+    ax_3d.set_zlabel(feature_names[2])  # Geo Altitude
+    ax_3d.legend(loc='lower left')
+
+    # --- Subplot 2: 2D Trajectory (Lon vs. Lat) ---
+    ax_2d = fig.add_subplot(2, 2, 2)
+    ax_2d.plot(lon_true, lat_true, label='Ground Truth', marker='o', linestyle='-', color='blue', alpha=0.7)
+    ax_2d.plot(lon_pred, lat_pred, label='Prediction', marker='x', linestyle='--', color='red', alpha=0.8)
+    ax_2d.plot(lon_true[0], lat_true[0], marker='s', color='green', markersize=8, label='Start Point')
+
+    ax_2d.set_title(f'2D Trajectory Prediction (Lon vs. Lat)', fontsize=14)
+    ax_2d.set_xlabel(feature_names[1])
+    ax_2d.set_ylabel(feature_names[0])
+    ax_2d.legend()
+    ax_2d.grid(True, linestyle='--', alpha=0.6)
+    ax_2d.set_aspect('equal', adjustable='box')
+
+    # --- Subplot 3: Geo Altitude Time-Series ---
+    ax_geo_alt = fig.add_subplot(2, 2, 3)
+    # 绘制 Geo Altitude (index 2)
+    ax_geo_alt.plot(time_steps, geo_alt_true, label='Ground Truth', marker='o', linestyle='-', color='blue', alpha=0.7)
+    ax_geo_alt.plot(time_steps, geo_alt_pred, label='Prediction', marker='x', linestyle='--', color='red', alpha=0.8)
+    ax_geo_alt.set_title(f'{feature_names[2]} Time-Series Forecast', fontsize=12)
+    ax_geo_alt.set_xlabel('Time Steps (Future)')
+    ax_geo_alt.set_ylabel(feature_names[2])
+    ax_geo_alt.legend()
+    ax_geo_alt.grid(True, linestyle='--', alpha=0.6)
+
+    # --- Subplot 4: Baro Altitude Time-Series ---
+    ax_baro_alt = fig.add_subplot(2, 2, 4)
+    # 绘制 Baro Altitude (index 3)
+    ax_baro_alt.plot(time_steps, baro_alt_true, label='Ground Truth', marker='o', linestyle='-', color='blue',
+                     alpha=0.7)
+    ax_baro_alt.plot(time_steps, baro_alt_pred, label='Prediction', marker='x', linestyle='--', color='red', alpha=0.8)
+    ax_baro_alt.set_title(f'{feature_names[3]} Time-Series Forecast', fontsize=12)
+    ax_baro_alt.set_xlabel('Time Steps (Future)')
+    ax_baro_alt.set_ylabel(feature_names[3])
+    ax_baro_alt.legend()
+    ax_baro_alt.grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # 调整布局以适应标题
 
     # 确保保存路径存在
     output_dir = os.path.dirname(output_path)
