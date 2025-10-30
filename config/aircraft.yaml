@@ -1,0 +1,73 @@
+# config/aircraft.yaml
+
+# 请将 'data.csv' 替换为您原始ADS-B数据的实际路径
+common:
+  # 原始ADS-B数据CSV文件路径
+  data_csv_path: 'data.csv'
+  # 模型检查点保存路径
+  checkpoints: './checkpoints/'
+
+data:
+  # 输入序列长度 (L_x)
+  seq_len: 96
+  # 解码器起始输入长度 (L_token)
+  label_len: 48
+  # 预测序列长度 (L_y)
+  pred_len: 24
+  # 批次大小
+  batch_size: 16
+  # 数据加载器工作进程数
+  num_workers: 4
+  # 数据预处理参数 (来自data_preprocess.py)
+  speed_min: 50 # 最小合理速度 (m/s)
+  speed_max: 300 # 最大合理速度 (m/s)
+
+model:
+  # 编码器输入特征维度 (lat, lon, geo_alt, baro_alt)
+  enc_in: 4
+  # 解码器输入特征维度
+  dec_in: 4
+  # 输出特征维度
+  c_out: 4
+  # 模型维度
+  d_model: 512
+  # Attention Head数量
+  n_heads: 8
+  # 编码器层数
+  e_layers: 2
+  # 解码器层数
+  d_layers: 1
+  # FFN层维度
+  d_ff: 2048
+  # ProbSparse Attention Factor
+  factor: 5
+  # Dropout率
+  dropout: 0.05
+  # Attention机制
+  attn: 'prob'
+  # 时间特征编码方式 (timeF: 基于时间戳的特征)
+  embed: 'timeF'
+  # 时间特征频率
+  freq: 's'
+  # 激活函数
+  activation: 'gelu'
+  # 是否输出注意力矩阵
+  output_attention: False
+  # 是否使用Distilling
+  distil: True
+  # 是否使用混合注意力
+  mix: True
+
+train:
+  # 训练轮次
+  train_epochs: 10
+  # 早停耐心值
+  patience: 3
+  # 学习率
+  learning_rate: 0.0001
+  # 损失函数
+  loss: 'mse'
+  # 使用GPU
+  use_gpu: True
+  # GPU ID
+  gpu: 0
