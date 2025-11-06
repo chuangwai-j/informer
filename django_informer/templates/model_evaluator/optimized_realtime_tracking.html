@@ -1,0 +1,886 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时飞机轨迹预测系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+    <style>
+        .performance-indicator {
+            transition: all 0.3s ease;
+        }
+
+        .status-online {
+            background: linear-gradient(45deg, #10b981, #34d399);
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-offline {
+            background: linear-gradient(45deg, #ef4444, #f87171);
+            animation: pulse-red 2s infinite;
+        }
+
+        @keyframes pulse-green {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .visualization-container {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .control-panel {
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(15px);
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #3b82f6;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .flight-info-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-left: 4px solid #3b82f6;
+        }
+
+        .confidence-bar {
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #ef4444 0%, #eab308 50%, #10b981 100%);
+            position: relative;
+        }
+
+        .confidence-indicator {
+            position: absolute;
+            top: -2px;
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            border: 2px solid #3b82f6;
+            transition: left 0.3s ease;
+        }
+
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .data-table {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .data-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .data-table th {
+            background: rgba(30, 41, 59, 0.8);
+            font-weight: 600;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .alert-info {
+            background: rgba(59, 130, 246, 0.2);
+            border-left: 4px solid #3b82f6;
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-left: 4px solid #f59e0b;
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.2);
+            border-left: 4px solid #10b981;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.2);
+            border-left: 4px solid #ef4444;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- 加载遮罩 -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="text-center">
+            <div class="spinner mx-auto mb-4"></div>
+            <p class="text-xl">正在初始化高性能跟踪系统...</p>
+        </div>
+    </div>
+
+    <!-- 导航栏 -->
+    <nav class="bg-slate-800 border-b border-slate-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-plane text-blue-500 text-2xl mr-3"></i>
+                    <h1 class="text-xl font-bold">实时飞机轨迹预测系统</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <span id="connectionStatus" class="status-indicator status-offline"></span>
+                        <span id="connectionText">离线</span>
+                    </div>
+                    <div class="text-sm text-gray-400">
+                        <span id="currentTime">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区域 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- 警告和通知区域 -->
+        <div id="alertsContainer"></div>
+
+        <!-- 控制面板 -->
+        <div class="control-panel rounded-lg p-6 mb-8">
+            <h2 class="text-2xl font-bold mb-6 flex items-center">
+                <i class="fas fa-sliders-h mr-3"></i>
+                控制面板
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- 航班选择 -->
+                <div>
+                    <label class="block text-sm font-medium mb-2">航班号</label>
+                    <div class="flex space-x-2">
+                        <input type="text" id="flightInput" placeholder="输入航班号 (如: CA1234)"
+                               class="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button id="connectBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition duration-200">
+                            <i class="fas fa-link mr-2"></i>连接
+                        </button>
+                        <button id="disconnectBtn" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition duration-200" disabled>
+                            <i class="fas fa-unlink mr-2"></i>断开
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 可视化控制 -->
+                <div>
+                    <label class="block text-sm font-medium mb-2">可视化设置</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button class="viz-toggle px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition" data-viz="3d">
+                            <i class="fas fa-cube mr-1"></i>3D
+                        </button>
+                        <button class="viz-toggle px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition" data-viz="2d">
+                            <i class="fas fa-map mr-1"></i>2D
+                        </button>
+                        <button class="viz-toggle px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition" data-viz="performance">
+                            <i class="fas fa-tachometer-alt mr-1"></i>性能
+                        </button>
+                        <button id="fullscreenBtn" class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition">
+                            <i class="fas fa-expand mr-1"></i>全屏
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 数据控制 -->
+                <div>
+                    <label class="block text-sm font-medium mb-2">数据控制</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="clearDataBtn" class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition">
+                            <i class="fas fa-trash mr-1"></i>清除
+                        </button>
+                        <button id="exportDataBtn" class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition">
+                            <i class="fas fa-download mr-1"></i>导出
+                        </button>
+                        <button id="pauseBtn" class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded transition">
+                            <i class="fas fa-pause mr-1"></i>暂停
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 性能指标面板 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="metric-card rounded-lg p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">数据更新</p>
+                        <p class="text-2xl font-bold" id="updateCount">0</p>
+                    </div>
+                    <i class="fas fa-database text-3xl text-blue-500"></i>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-lg p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">预测次数</p>
+                        <p class="text-2xl font-bold" id="predictionCount">0</p>
+                    </div>
+                    <i class="fas fa-chart-line text-3xl text-green-500"></i>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-lg p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">平均延迟</p>
+                        <p class="text-2xl font-bold" id="avgLatency">0ms</p>
+                    </div>
+                    <i class="fas fa-clock text-3xl text-yellow-500"></i>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-lg p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">内存使用</p>
+                        <p class="text-2xl font-bold" id="memoryUsage">0MB</p>
+                    </div>
+                    <i class="fas fa-memory text-3xl text-purple-500"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主要内容区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 可视化区域 -->
+            <div class="lg:col-span-2">
+                <div class="visualization-container p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-bold">轨迹可视化</h3>
+                        <div class="flex items-center space-x-4">
+                            <span class="text-sm">可视化模式:</span>
+                            <span id="vizMode" class="text-sm font-medium text-blue-400">3D</span>
+                        </div>
+                    </div>
+
+                    <div id="trajectoryVisualization" class="bg-white rounded-lg" style="height: 500px;">
+                        <!-- Plotly图表将在这里渲染 -->
+                    </div>
+
+                    <!-- 置信度指示器 -->
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium">预测置信度</span>
+                            <span id="confidenceValue" class="text-sm font-medium">0%</span>
+                        </div>
+                        <div class="confidence-bar">
+                            <div id="confidenceIndicator" class="confidence-indicator" style="left: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 侧边栏信息 -->
+            <div class="space-y-6">
+                <!-- 航班信息 -->
+                <div class="flight-info-card rounded-lg p-6">
+                    <h3 class="text-lg font-bold mb-4 flex items-center">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        航班信息
+                    </h3>
+
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">航班号:</span>
+                            <span id="flightId" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">状态:</span>
+                            <span id="flightStatus" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">高度:</span>
+                            <span id="flightAltitude" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">速度:</span>
+                            <span id="flightSpeed" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">航向:</span>
+                            <span id="flightHeading" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">位置:</span>
+                            <span id="flightPosition" class="font-medium text-sm">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">最后更新:</span>
+                            <span id="lastUpdate" class="font-medium text-sm">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 系统状态 -->
+                <div class="flight-info-card rounded-lg p-6">
+                    <h3 class="text-lg font-bold mb-4 flex items-center">
+                        <i class="fas fa-server mr-2"></i>
+                        系统状态
+                    </h3>
+
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">连接状态:</span>
+                            <span id="systemConnection" class="font-medium">
+                                <span class="status-indicator status-offline"></span>
+                                离线
+                            </span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">缓冲区大小:</span>
+                            <span id="bufferSize" class="font-medium">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">预测缓存:</span>
+                            <span id="cacheSize" class="font-medium">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">队列大小:</span>
+                            <span id="queueSize" class="font-medium">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">CPU使用率:</span>
+                            <span id="cpuUsage" class="font-medium">0%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">成功预测率:</span>
+                            <span id="successRate" class="font-medium">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 最近事件 -->
+                <div class="flight-info-card rounded-lg p-6">
+                    <h3 class="text-lg font-bold mb-4 flex items-center">
+                        <i class="fas fa-list mr-2"></i>
+                        最近事件
+                    </h3>
+
+                    <div id="eventLog" class="space-y-2 max-h-64 overflow-y-auto">
+                        <div class="text-sm text-gray-400">等待事件...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 引入优化后的JavaScript -->
+    <script src="{% static 'js/optimized-flight-client.js' %}"></script>
+
+    <script>
+        /**
+         * 高性能实时跟踪系统主应用
+         */
+        class HighPerformanceTrackingApp {
+            constructor() {
+                this.trackingClient = null;
+                this.visualizer = null;
+                this.currentFlightId = null;
+                this.isPaused = false;
+                this.updateCount = 0;
+                this.predictionCount = 0;
+                this.eventHistory = [];
+
+                this._initializeApp();
+            }
+
+            async _initializeApp() {
+                try {
+                    // 隐藏加载遮罩
+                    setTimeout(() => {
+                        document.getElementById('loadingOverlay').style.display = 'none';
+                    }, 2000);
+
+                    // 初始化可视化器
+                    this.visualizer = new HighPerformanceTrajectoryVisualizer('trajectoryVisualization', {
+                        enable3D: true,
+                        enablePerformanceMode: true,
+                        maxPoints: 500
+                    });
+
+                    // 设置事件监听器
+                    this._setupEventListeners();
+
+                    // 启动时间更新
+                    this._startTimeUpdate();
+
+                    // 加载系统状态
+                    this._loadSystemStatus();
+
+                    console.log('高性能跟踪应用初始化完成');
+
+                } catch (error) {
+                    console.error('应用初始化失败:', error);
+                    this._showAlert('应用初始化失败: ' + error.message, 'error');
+                }
+            }
+
+            _setupEventListeners() {
+                // 连接按钮
+                document.getElementById('connectBtn').addEventListener('click', () => {
+                    this._connectToFlight();
+                });
+
+                // 断开按钮
+                document.getElementById('disconnectBtn').addEventListener('click', () => {
+                    this._disconnectFromFlight();
+                });
+
+                // 输入框回车事件
+                document.getElementById('flightInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this._connectToFlight();
+                    }
+                });
+
+                // 可视化切换
+                document.querySelectorAll('.viz-toggle').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        this._toggleVisualization(e.target.dataset.viz);
+                    });
+                });
+
+                // 全屏按钮
+                document.getElementById('fullscreenBtn').addEventListener('click', () => {
+                    this._toggleFullscreen();
+                });
+
+                // 数据控制按钮
+                document.getElementById('clearDataBtn').addEventListener('click', () => {
+                    this._clearData();
+                });
+
+                document.getElementById('exportDataBtn').addEventListener('click', () => {
+                    this._exportData();
+                });
+
+                document.getElementById('pauseBtn').addEventListener('click', () => {
+                    this._togglePause();
+                });
+            }
+
+            async _connectToFlight() {
+                const flightInput = document.getElementById('flightInput');
+                const flightId = flightInput.value.trim();
+
+                if (!flightId) {
+                    this._showAlert('请输入航班号', 'warning');
+                    return;
+                }
+
+                try {
+                    this._showAlert(`正在连接到航班 ${flightId}...`, 'info');
+
+                    // 创建客户端
+                    this.trackingClient = new OptimizedFlightTrackingClient({
+                        flightId: flightId,
+                        enableVisualization: false, // 我们自己处理可视化
+                        enablePerformanceMonitoring: true
+                    });
+
+                    // 设置事件监听器
+                    this._setupClientEventListeners();
+
+                    // 等待连接建立
+                    await this._waitForConnection();
+
+                    this.currentFlightId = flightId;
+                    this._updateConnectionUI(true);
+                    this._showAlert(`成功连接到航班 ${flightId}`, 'success');
+
+                } catch (error) {
+                    console.error('连接失败:', error);
+                    this._showAlert('连接失败: ' + error.message, 'error');
+                    this._updateConnectionUI(false);
+                }
+            }
+
+            _setupClientEventListeners() {
+                if (!this.trackingClient) return;
+
+                // 连接事件
+                this.trackingClient.on('connection:established', () => {
+                    this._addEvent('连接已建立', 'success');
+                });
+
+                this.trackingClient.on('connection:closed', () => {
+                    this._addEvent('连接已关闭', 'warning');
+                    this._updateConnectionUI(false);
+                });
+
+                this.trackingClient.on('connection:error', (error) => {
+                    this._addEvent(`连接错误: ${error.message}`, 'error');
+                });
+
+                // 数据更新事件
+                this.trackingClient.on('position:update', (data) => {
+                    if (!this.isPaused) {
+                        this._updateFlightInfo(data);
+                        this.visualizer.updateTrajectory([data]);
+                        this.updateCount++;
+                        this._updateMetrics();
+                    }
+                });
+
+                this.trackingClient.on('prediction:update', (data) => {
+                    if (!this.isPaused) {
+                        this.visualizer.updatePrediction(data);
+                        this._updateConfidence(data.confidence);
+                        this.predictionCount++;
+                        this._updateMetrics();
+                        this._addEvent(`收到预测更新，置信度: ${(data.confidence.overall * 100).toFixed(1)}%`, 'info');
+                    }
+                });
+
+                // 性能监控事件
+                this.trackingClient.on('performance:metrics', (metrics) => {
+                    this._updatePerformanceMetrics(metrics);
+                });
+            }
+
+            async _waitForConnection() {
+                return new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('连接超时'));
+                    }, 10000);
+
+                    const checkConnection = () => {
+                        if (this.trackingClient.isConnected) {
+                            clearTimeout(timeout);
+                            resolve();
+                        } else {
+                            setTimeout(checkConnection, 100);
+                        }
+                    };
+
+                    checkConnection();
+                });
+            }
+
+            _disconnectFromFlight() {
+                if (this.trackingClient) {
+                    this.trackingClient.destroy();
+                    this.trackingClient = null;
+                }
+
+                this.currentFlightId = null;
+                this._updateConnectionUI(false);
+                this._resetFlightInfo();
+                this._clearVisualization();
+                this._showAlert('已断开连接', 'info');
+                this._addEvent('手动断开连接', 'warning');
+            }
+
+            _updateConnectionUI(connected) {
+                const connectBtn = document.getElementById('connectBtn');
+                const disconnectBtn = document.getElementById('disconnectBtn');
+                const statusIndicator = document.getElementById('connectionStatus');
+                const connectionText = document.getElementById('connectionText');
+                const systemConnection = document.getElementById('systemConnection');
+
+                if (connected) {
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    statusIndicator.className = 'status-indicator status-online';
+                    connectionText.textContent = '在线';
+                    systemConnection.innerHTML = '<span class="status-indicator status-online"></span>在线';
+                } else {
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    statusIndicator.className = 'status-indicator status-offline';
+                    connectionText.textContent = '离线';
+                    systemConnection.innerHTML = '<span class="status-indicator status-offline"></span>离线';
+                }
+            }
+
+            _updateFlightInfo(data) {
+                document.getElementById('flightId').textContent = data.flight_id || '--';
+                document.getElementById('flightAltitude').textContent = data.altitude ?
+                    `${(data.altitude / 1000).toFixed(1)}km` : '--';
+                document.getElementById('flightSpeed').textContent = data.speed ?
+                    `${(data.speed * 3.6).toFixed(0)}km/h` : '--';
+                document.getElementById('flightHeading').textContent = data.heading ?
+                    `${data.heading.toFixed(0)}°` : '--';
+                document.getElementById('flightPosition').textContent =
+                    `${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}`;
+                document.getElementById('lastUpdate').textContent =
+                    new Date(data.timestamp).toLocaleTimeString();
+            }
+
+            _updateConfidence(confidence) {
+                const confidencePercent = (confidence.overall * 100).toFixed(1);
+                document.getElementById('confidenceValue').textContent = `${confidencePercent}%`;
+                document.getElementById('confidenceIndicator').style.left = `${confidence.overall * 100}%`;
+            }
+
+            _updateMetrics() {
+                document.getElementById('updateCount').textContent = this.updateCount;
+                document.getElementById('predictionCount').textContent = this.predictionCount;
+            }
+
+            _updatePerformanceMetrics(metrics) {
+                document.getElementById('avgLatency').textContent = `${metrics.averageLatency.toFixed(1)}ms`;
+                document.getElementById('memoryUsage').textContent = `${metrics.memoryUsage.toFixed(1)}MB`;
+            }
+
+            _resetFlightInfo() {
+                const fields = ['flightId', 'flightStatus', 'flightAltitude', 'flightSpeed',
+                               'flightHeading', 'flightPosition', 'lastUpdate'];
+                fields.forEach(field => {
+                    document.getElementById(field).textContent = '--';
+                });
+            }
+
+            _toggleVisualization(mode) {
+                document.getElementById('vizMode').textContent = mode.toUpperCase();
+
+                // 更新按钮状态
+                document.querySelectorAll('.viz-toggle').forEach(btn => {
+                    btn.classList.remove('bg-blue-600');
+                    btn.classList.add('bg-slate-600');
+                });
+                document.querySelector(`[data-viz="${mode}"]`).classList.remove('bg-slate-600');
+                document.querySelector(`[data-viz="${mode}"]`).classList.add('bg-blue-600');
+
+                this._addEvent(`切换到${mode.toUpperCase()}可视化模式`, 'info');
+            }
+
+            _toggleFullscreen() {
+                const vizContainer = document.getElementById('trajectoryVisualization');
+                if (!document.fullscreenElement) {
+                    vizContainer.requestFullscreen();
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            _clearData() {
+                this.updateCount = 0;
+                this.predictionCount = 0;
+                this._updateMetrics();
+                this._clearVisualization();
+                this._resetFlightInfo();
+                this._addEvent('数据已清除', 'info');
+            }
+
+            _clearVisualization() {
+                if (this.visualizer) {
+                    this.visualizer.updateTrajectory([]);
+                    this.visualizer.updatePrediction(null);
+                }
+            }
+
+            _exportData() {
+                if (!this.trackingClient) {
+                    this._showAlert('请先连接到航班', 'warning');
+                    return;
+                }
+
+                const data = {
+                    flightId: this.currentFlightId,
+                    exportTime: new Date().toISOString(),
+                    updateCount: this.updateCount,
+                    predictionCount: this.predictionCount,
+                    flightData: this.trackingClient.flightData,
+                    predictions: this.trackingClient.predictions,
+                    performanceMetrics: this.trackingClient.getPerformanceMetrics()
+                };
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `flight_${this.currentFlightId}_${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                this._addEvent('数据已导出', 'success');
+            }
+
+            _togglePause() {
+                this.isPaused = !this.isPaused;
+                const pauseBtn = document.getElementById('pauseBtn');
+
+                if (this.isPaused) {
+                    pauseBtn.innerHTML = '<i class="fas fa-play mr-1"></i>继续';
+                    this._addEvent('数据更新已暂停', 'warning');
+                } else {
+                    pauseBtn.innerHTML = '<i class="fas fa-pause mr-1"></i>暂停';
+                    this._addEvent('数据更新已恢复', 'success');
+                }
+            }
+
+            _addEvent(message, type = 'info') {
+                const eventLog = document.getElementById('eventLog');
+                const timestamp = new Date().toLocaleTimeString();
+
+                const eventTypes = {
+                    info: { icon: 'fa-info-circle', color: 'text-blue-400' },
+                    success: { icon: 'fa-check-circle', color: 'text-green-400' },
+                    warning: { icon: 'fa-exclamation-triangle', color: 'text-yellow-400' },
+                    error: { icon: 'fa-times-circle', color: 'text-red-400' }
+                };
+
+                const eventConfig = eventTypes[type] || eventTypes.info;
+
+                const eventHtml = `
+                    <div class="flex items-start space-x-2 text-sm">
+                        <i class="fas ${eventConfig.icon} ${eventConfig.color} mt-0.5"></i>
+                        <div>
+                            <span class="text-gray-300">${message}</span>
+                            <span class="text-gray-500 text-xs ml-2">${timestamp}</span>
+                        </div>
+                    </div>
+                `;
+
+                eventLog.insertAdjacentHTML('afterbegin', eventHtml);
+
+                // 限制事件历史数量
+                const events = eventLog.children;
+                if (events.length > 20) {
+                    events[events.length - 1].remove();
+                }
+            }
+
+            _showAlert(message, type = 'info') {
+                const alertsContainer = document.getElementById('alertsContainer');
+
+                const alertTypes = {
+                    info: { icon: 'fa-info-circle', class: 'alert-info' },
+                    success: { icon: 'fa-check-circle', class: 'alert-success' },
+                    warning: { icon: 'fa-exclamation-triangle', class: 'alert-warning' },
+                    error: { icon: 'fa-times-circle', class: 'alert-error' }
+                };
+
+                const alertConfig = alertTypes[type] || alertTypes.info;
+
+                const alertHtml = `
+                    <div class="alert ${alertConfig.class}">
+                        <i class="fas ${alertConfig.icon} mr-3"></i>
+                        <span>${message}</span>
+                        <button onclick="this.parentElement.remove()" class="ml-auto">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `;
+
+                alertsContainer.insertAdjacentHTML('afterbegin', alertHtml);
+
+                // 自动移除警告
+                setTimeout(() => {
+                    const alerts = alertsContainer.children;
+                    if (alerts.length > 0) {
+                        alerts[alerts.length - 1].remove();
+                    }
+                }, 5000);
+            }
+
+            _startTimeUpdate() {
+                setInterval(() => {
+                    document.getElementById('currentTime').textContent =
+                        new Date().toLocaleTimeString();
+                }, 1000);
+            }
+
+            async _loadSystemStatus() {
+                try {
+                    // 这里可以调用API获取系统状态
+                    // 模拟数据
+                    const mockStatus = {
+                        bufferSize: Math.floor(Math.random() * 1000),
+                        cacheSize: Math.floor(Math.random() * 100),
+                        queueSize: Math.floor(Math.random() * 50),
+                        cpuUsage: (Math.random() * 100).toFixed(1),
+                        successRate: (85 + Math.random() * 15).toFixed(1)
+                    };
+
+                    document.getElementById('bufferSize').textContent = mockStatus.bufferSize;
+                    document.getElementById('cacheSize').textContent = mockStatus.cacheSize;
+                    document.getElementById('queueSize').textContent = mockStatus.queueSize;
+                    document.getElementById('cpuUsage').textContent = `${mockStatus.cpuUsage}%`;
+                    document.getElementById('successRate').textContent = `${mockStatus.successRate}%`;
+
+                } catch (error) {
+                    console.error('加载系统状态失败:', error);
+                }
+            }
+        }
+
+        // 初始化应用
+        document.addEventListener('DOMContentLoaded', () => {
+            window.trackingApp = new HighPerformanceTrackingApp();
+        });
+    </script>
+</body>
+</html>

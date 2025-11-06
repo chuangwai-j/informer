@@ -1,0 +1,64 @@
+Watching for file changes with StatReloader
+"GET / HTTP/1.1" 200 10237
+"GET /static/css/style.css HTTP/1.1" 200 4825
+"GET /api/results/ HTTP/1.1" 200 126
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11667
+Not Found: /favicon.ico
+"GET /favicon.ico HTTP/1.1" 404 3423
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11667
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11667
+"GET / HTTP/1.1" 200 10237
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /evaluation/ HTTP/1.1" 200 10815
+"GET /static/css/style.css HTTP/1.1" 304 0
+"GET / HTTP/1.1" 200 10237
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /evaluation/ HTTP/1.1" 200 10815
+"GET / HTTP/1.1" 200 10237
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /api/results/ HTTP/1.1" 200 126
+/home/wai/Informer/django_informer/model_evaluator/views.py changed, reloading.
+Watching for file changes with StatReloader
+/home/wai/Informer/django_informer/model_evaluator/views.py changed, reloading.
+Watching for file changes with StatReloader
+/home/wai/Informer/django_informer/model_evaluator/urls.py changed, reloading.
+Watching for file changes with StatReloader
+"GET / HTTP/1.1" 200 10474
+"GET /static/css/style.css HTTP/1.1" 304 0
+"GET /api/results/ HTTP/1.1" 200 126
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11904
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11904
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /evaluation/ HTTP/1.1" 200 11052
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /api/results/ HTTP/1.1" 200 126
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11904
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+"GET /evaluation/ HTTP/1.1" 200 11052
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+配置加载成功，设备: cuda:0
+"GET /model-info/ HTTP/1.1" 200 11904
+"GET / HTTP/1.1" 200 10474
+"GET /api/results/ HTTP/1.1" 200 126
+/home/wai/Informer/django_informer/model_evaluator/models.py changed, reloading.
+Watching for file changes with StatReloader
+/home/wai/Informer/django_informer/django_informer/settings.py changed, reloading.
+Watching for file changes with StatReloader
+/home/wai/Informer/django_informer/django_informer/settings.py changed, reloading.
+Watching for file changes with StatReloader

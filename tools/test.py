@@ -4,6 +4,7 @@ import numpy as np
 import argparse
 import yaml
 from easydict import EasyDict as edict
+from torch.utils.data import DataLoader
 
 # 导入模型和数据加载器
 from models.model import Informer
@@ -51,64 +52,100 @@ def load_model(checkpoint_path, args):
         distil=args.distil, mix=args.mix, device=args.device
     ).float().to(args.device)
 
+    # 注意：这里假设检查点路径是完整的模型文件路径
     model.load_state_dict(torch.load(checkpoint_path, map_location=args.device))
     model.eval()
     return model
 
 
-def predict_trajectory(model, input_sequence, data_mean, data_std, args):
-    """
-    使用模型预测轨迹
-    input_sequence: 原始（未标准化）的N个时间步的序列 numpy array, shape (N, 4)
-    data_mean, data_std: 标准化参数 numpy array, shape (4,)
-    """
+def get_test_dataloader(args):
+    """加载测试数据集并返回 DataLoader"""
+    # 这里会触发数据的清洗和标准化
+    print("--- 正在初始化 test 数据集并进行清洗和标准化 (仅执行一次) ---")
+    test_data = AircraftTrajectoryDataset(
+        csv_path=args.data_csv_path,
+        seq_len=args.seq_len,
+        label_len=args.label_len,
+        pred_len=args.pred_len,
+        mode='test',
+        scale=True,
+        speed_min=args.speed_min,
+        speed_max=args.speed_max
+    )
+    test_loader = DataLoader(
+        test_data,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        collate_fn=custom_collate_fn
+    )
+    return test_loader
+
+
+def evaluate_model(model, test_loader, args):
+    """对整个测试集进行评估，计算并打印指标"""
+    model.eval()
+
+    all_preds = []
+    all_trues = []
+
     with torch.no_grad():
-        # 1. 标准化输入
-        input_std = (input_sequence - data_mean) / data_std
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+            batch_x = batch_x.float().to(args.device)
+            batch_y = batch_y.float().to(args.device)
+            batch_x_mark = batch_x_mark.float().to(args.device)
+            batch_y_mark = batch_y_mark.float().to(args.device)
 
-        # 2. 转换为张量并添加批次维度
-        input_tensor = torch.FloatTensor(input_std).unsqueeze(0).to(args.device)
+            dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float()
+            dec_inp = torch.cat([batch_y[:, :args.label_len, :], dec_inp], dim=1).float().to(args.device)
 
-        # 检查输入长度
-        if input_tensor.shape[1] < args.seq_len:
-            raise ValueError(f"输入序列长度不足 {args.seq_len}，无法进行预测。")
+            if args.output_attention:
+                outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+            else:
+                outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-        # 提取用于Encoder的序列
-        seq_x = input_tensor[:, -args.seq_len:, :]
+            outputs = outputs[:, -args.pred_len:, :]
+            batch_y = batch_y[:, -args.pred_len:, :].to(args.device)
 
-        # 3. 创建时间标记 (这里需要一个真实的、基于时间的标记)
-        # 由于我们无法获取预测时间步的原始时间戳，这里进行简化，仅提供一个占位符。
-        # 实际应用中，需要根据预测时间长度生成对应的相对时间特征。
+            all_preds.append(outputs.detach().cpu())
+            all_trues.append(batch_y.detach().cpu())
 
-        # 假设 seq_x 对应的原始时间戳 (这里为简化，直接从最后一个时间步向前推 seq_len 个时间步)
-        # 生产环境需要传入原始时间戳
-        # 为了演示，我们使用与训练集特征数匹配的零张量作为占位符
-        time_feature_dim = 4  # 对应 data_loader.py 中的4个特征
-        seq_x_mark = torch.zeros(1, args.seq_len, time_feature_dim).float().to(args.device)
+    # 计算指标
+    total_mae, total_mse, total_rmse = 0, 0, 0
+    num_batches = len(all_preds)
 
-        # 4. 解码器输入
-        dec_inp = torch.zeros(1, args.label_len + args.pred_len, args.c_out).float().to(args.device)
-        dec_inp[:, :args.label_len, :] = seq_x[:, -args.label_len:, :]
+    if num_batches == 0:
+        print("Warning: 测试集中没有足够长的序列可用于评估。")
+        return None, None
 
-        # 解码器时间标记
-        dec_time_mark = torch.zeros(1, args.label_len + args.pred_len, time_feature_dim).float().to(args.device)
+    for pred, true in zip(all_preds, all_trues):
+        pred_np = pred.numpy()
+        true_np = true.numpy()
 
-        # 5. 预测
-        outputs = model(seq_x, seq_x_mark, dec_inp, dec_time_mark)
-        outputs = outputs[:, -args.pred_len:, :]
+        mae = np.mean(np.abs(pred_np - true_np))
+        mse = np.mean((pred_np - true_np) ** 2)
+        rmse = np.sqrt(mse)
 
-        # 6. 反标准化
-        pred_denorm = outputs.cpu().numpy()[0] * data_std + data_mean
+        total_mae += mae
+        total_mse += mse
+        total_rmse += rmse
 
-        return pred_denorm
+    avg_mae = total_mae / num_batches
+    avg_mse = total_mse / num_batches
+    avg_rmse = total_rmse / num_batches
+
+    print(f'\n--- 完整测试集评估结果 ---')
+    print(f'测试 MAE: {avg_mae:.4f}, MSE: {avg_mse:.4f}, RMSE: {avg_rmse:.4f}')
+    print(f'----------------------------')
+
+    return all_preds, all_trues
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='./config/aircraft.yaml', help='Configuration file path')
     parser.add_argument('--checkpoint', type=str, default='./checkpoints/checkpoint.pth', help='模型检查点路径')
-    # 可以添加一个参数来指定要预测的轨迹 index
-    parser.add_argument('--predict_index', type=int, default=0, help='选择测试集中哪个轨迹进行预测')
+    # 移除 --predict_index 参数，专注于完整评估
 
     cfg_args = parser.parse_args()
 
@@ -122,56 +159,18 @@ def main():
     model = load_model(args.checkpoint, args)
     print(f"模型加载成功，设备: {args.device}")
 
-    # 2. 加载数据集用于获取标准化参数和测试样本
-    # mode='test' 会加载测试集数据，并进行标准化
-    dataset = AircraftTrajectoryDataset(
-        csv_path=args.data_csv_path,
-        seq_len=args.seq_len,
-        label_len=args.label_len,
-        pred_len=args.pred_len,
-        mode='test',
-        speed_min=args.speed_min,
-        speed_max=args.speed_max
-    )
+    # 2. 加载测试数据的 DataLoader (执行清洗和标准化)
+    test_loader = get_test_dataloader(args)
 
-    if len(dataset.used_data) == 0:
-        print("Warning: 测试集无足够长轨迹，无法进行预测演示。")
-        return
+    # 3. 对整个测试集进行评估
+    print("\n开始对整个测试集进行评估...")
+    preds, trues = evaluate_model(model, test_loader, args)
 
-    # 3. 选取一个样本进行预测
-    try:
-        # 获取原始（未标准化）轨迹
-        trajectory_full = dataset.used_data[cfg_args.predict_index]
-
-        # 提取用于输入模型的序列 (取最后 seq_len 个时间步)
-        input_data_full = trajectory_full[:, 1:]  # 排除时间列
-
-        # 确保输入数据长度满足要求
-        if input_data_full.shape[0] < args.seq_len:
-            print(f"错误: 选定的轨迹 ({cfg_args.predict_index}) 长度不足 {args.seq_len}，无法预测。")
-            return
-
-        input_sequence = input_data_full[-args.seq_len:]
-
-        print(f"正在使用测试集中的第 {cfg_args.predict_index} 条轨迹的最后 {args.seq_len} 个点进行预测...")
-
-        # 4. 预测
-        predicted_trajectory = predict_trajectory(
-            model,
-            input_sequence,
-            dataset.data_mean,
-            dataset.data_std,
-            args
-        )
-
-        print(f"预测完成。预测序列长度: {args.pred_len}, 预测特征维度: {predicted_trajectory.shape[1]}")
-        # print("预测结果 (前5行):")
-        # print(predicted_trajectory[:5])
-
-    except IndexError:
-        print(f"错误: 预测索引 {cfg_args.predict_index} 超出测试集范围 (0 到 {len(dataset.used_data) - 1})")
-    except Exception as e:
-        print(f"预测过程中发生错误: {e}")
+    if preds is not None:
+        # 4. 保存预测结果
+        torch.save(preds, 'predictions_test.pt')
+        torch.save(trues, 'ground_truth_test.pt')
+        print("\n完整测试结果已保存为 predictions_test.pt 和 ground_truth_test.pt")
 
 
 if __name__ == "__main__":

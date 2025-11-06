@@ -3,7 +3,7 @@
 # 请将 'data.csv' 替换为您原始ADS-B数据的实际路径
 common:
   # 原始ADS-B数据CSV文件路径
-  data_csv_path: 'data.csv'
+  data_csv_path: '/mnt/d/model/wind_datas/data.csv'
   # 模型检查点保存路径
   checkpoints: './checkpoints/'
 
@@ -48,7 +48,7 @@ model:
   # 时间特征编码方式 (timeF: 基于时间戳的特征)
   embed: 'timeF'
   # 时间特征频率
-  freq: 's'
+  freq: 'h'
   # 激活函数
   activation: 'gelu'
   # 是否输出注意力矩阵

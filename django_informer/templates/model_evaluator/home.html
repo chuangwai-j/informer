@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+
+{% block title %}首页 - 实时飞机轨迹预测系统{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="jumbotron bg-primary text-white p-5 rounded mb-4">
+            <h1 class="display-4">
+                <i class="fas fa-plane"></i> 实时飞机轨迹预测系统
+            </h1>
+            <p class="lead">基于Informer深度学习模型的高性能实时飞机轨迹预测平台</p>
+            <hr class="my-4">
+            <p>本系统提供实时飞行数据接收、轨迹预测、3D可视化展示等功能，支持多架飞机并发跟踪与预测。</p>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 实时跟踪卡片 -->
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-satellite fa-3x text-success mb-3"></i>
+                <h5 class="card-title">实时跟踪</h5>
+                <p class="card-text">高性能实时飞机跟踪与轨迹预测，支持多架飞机并发处理。</p>
+                <a href="{% url 'model_evaluator:optimized_realtime_tracking' %}" class="btn btn-success">
+                    开始跟踪
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D可视化卡片 -->
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-cube fa-3x text-warning mb-3"></i>
+                <h5 class="card-title">3D可视化</h5>
+                <p class="card-text">实时3D轨迹可视化展示，支持多视角观察和交互式操作。</p>
+                <a href="{% url 'model_evaluator:visualization' %}" class="btn btn-warning">
+                    3D视图
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统监控卡片 -->
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-tachometer-alt fa-3x text-info mb-3"></i>
+                <h5 class="card-title">系统监控</h5>
+                <p class="card-text">查看系统运行状态、性能指标和实时数据统计。</p>
+                <button class="btn btn-info" onclick="loadStatistics()">
+                    查看监控
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 统计信息模态框 -->
+<div class="modal fade" id="statisticsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">系统监控信息</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="statisticsContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p class="mt-2">正在加载统计信息...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 最近评估结果 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-history"></i> 最近评估结果
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="recentResults">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p class="mt-2">正在加载最近结果...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function loadStatistics() {
+    const modal = new bootstrap.Modal(document.getElementById('statisticsModal'));
+    modal.show();
+
+    fetch('{% url "model_evaluator:api_results" %}')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const stats = data.statistics;
+                const content = `
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h6 class="card-title">总评估次数</h6>
+                                    <h3 class="text-primary">${stats.total_evaluations}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h6 class="card-title">平均RMSE</h6>
+                                    <h3 class="text-warning">${stats.avg_rmse.toFixed(6)}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h6 class="card-title">平均MAE</h6>
+                                    <h3 class="text-info">${stats.avg_mae.toFixed(6)}</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('statisticsContent').innerHTML = content;
+            } else {
+                document.getElementById('statisticsContent').innerHTML =
+                    '<div class="alert alert-danger">加载统计信息失败</div>';
+            }
+        })
+        .catch(error => {
+            document.getElementById('statisticsContent').innerHTML =
+                '<div class="alert alert-danger">网络错误: ' + error.message + '</div>';
+        });
+}
+
+function loadRecentResults() {
+    fetch('{% url "model_evaluator:api_results" %}')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.recent_results.length > 0) {
+                let html = '<div class="table-responsive"><table class="table table-striped">';
+                html += '<thead><tr><th>评估时间</th><th>RMSE</th><th>MAE</th><th>MSE</th><th>执行时间(秒)</th></tr></thead><tbody>';
+
+                data.recent_results.forEach(result => {
+                    html += `<tr>
+                        <td>${result.created_at}</td>
+                        <td>${result.rmse.toFixed(6)}</td>
+                        <td>${result.mae.toFixed(6)}</td>
+                        <td>${result.mse.toFixed(6)}</td>
+                        <td>${result.execution_time ? result.execution_time.toFixed(2) : '-'}</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+                document.getElementById('recentResults').innerHTML = html;
+            } else {
+                document.getElementById('recentResults').innerHTML =
+                    '<div class="alert alert-info">暂无评估结果</div>';
+            }
+        })
+        .catch(error => {
+            document.getElementById('recentResults').innerHTML =
+                '<div class="alert alert-danger">加载失败: ' + error.message + '</div>';
+        });
+}
+
+// 页面加载完成后执行
+document.addEventListener('DOMContentLoaded', function() {
+    loadRecentResults();
+});
+</script>
+{% endblock %}

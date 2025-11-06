@@ -1,0 +1,596 @@
+{% extends 'base.html' %}
+
+{% block title %}实时飞机跟踪 - Informer模型评估系统{% endblock %}
+
+{% block extra_css %}
+<style>
+.flight-status-card {
+    transition: all 0.3s ease;
+    border-left: 4px solid transparent;
+}
+
+.flight-status-card.active {
+    border-left-color: #28a745;
+    background-color: rgba(40, 167, 69, 0.05);
+}
+
+.flight-status-card.warning {
+    border-left-color: #ffc107;
+    background-color: rgba(255, 193, 7, 0.05);
+}
+
+.confidence-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.confidence-high { background-color: #28a745; }
+.confidence-medium { background-color: #ffc107; }
+.confidence-low { background-color: #dc3545; }
+
+.trajectory-legend {
+    font-size: 0.85rem;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pulse 2s infinite;
+}
+
+.status-indicator.active {
+    background-color: #28a745;
+}
+
+.status-indicator.inactive {
+    background-color: #6c757d;
+    animation: none;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.visualization-container {
+    min-height: 600px;
+}
+
+.control-panel {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.metric-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.metric-label {
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 页面标题和控制面板 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2><i class="fas fa-satellite"></i> 实时飞机轨迹预测系统</h2>
+                <div>
+                    <span class="status-indicator active"></span>
+                    <span class="text-muted me-3">系统运行中</span>
+                    <button class="btn btn-success" onclick="startRealTimeTracking()">
+                        <i class="fas fa-play"></i> 开始跟踪
+                    </button>
+                    <button class="btn btn-warning" onclick="stopRealTimeTracking()">
+                        <i class="fas fa-stop"></i> 停止跟踪
+                    </button>
+                    <button class="btn btn-info" onclick="refreshAllData()">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统指标 -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="metric-card text-center">
+                <div class="metric-value" id="activeFlightsCount">0</div>
+                <div class="metric-label">活跃飞机</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card text-center">
+                <div class="metric-value" id="totalPredictions">0</div>
+                <div class="metric-label">总预测次数</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card text-center">
+                <div class="metric-value" id="avgConfidence">0%</div>
+                <div class="metric-label">平均置信度</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card text-center">
+                <div class="metric-value" id="systemUptime">00:00</div>
+                <div class="metric-label">运行时间</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- 左侧：飞机列表 -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-plane"></i> 飞机列表
+                    </h5>
+                </div>
+                <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+                    <div id="flightsList">
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p class="mt-2">正在加载飞机列表...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：可视化 -->
+        <div class="col-md-8">
+            <!-- 可视化控制面板 -->
+            <div class="control-panel mb-3">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <label class="form-label">选择飞机:</label>
+                        <select id="flightSelector" class="form-select" onchange="switchFlight()">
+                            <option value="">全部飞机</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">视图类型:</label>
+                        <select id="viewType" class="form-select" onchange="switchView()">
+                            <option value="3d">3D轨迹</option>
+                            <option value="2d">2D投影</option>
+                            <option value="confidence">置信度</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">自动刷新:</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="autoRefresh" checked>
+                            <label class="form-check-label" for="autoRefresh">启用</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 可视化容器 -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-chart-line"></i> <span id="visualizationTitle">3D轨迹视图</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="visualization-container">
+                        <div id="plotlyChart" style="width: 100%; height: 600px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 轨迹图例 -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">图例说明</h6>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="trajectory-legend">
+                                <span class="badge bg-primary">●</span> 历史轨迹
+                                <span class="badge bg-danger">●</span> 预测轨迹
+                                <span class="badge bg-success">●</span> 高置信度 (>80%)
+                                <span class="badge bg-warning">●</span> 中置信度 (50-80%)
+                                <span class="badge bg-danger">●</span> 低置信度 (<50%)
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <small class="text-muted">
+                                最后更新: <span id="lastUpdateTime">--:--:--</span>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统状态模态框 -->
+<div class="modal fade" id="systemStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">系统状态</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="systemStatusContent">
+                    <!-- 动态加载系统状态 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+// 全局变量
+let flights = {};
+let websockets = {};
+let currentView = '3d';
+let selectedFlight = null;
+let trackingActive = false;
+let systemStartTime = Date.now();
+let refreshInterval = null;
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initializeSystem();
+    startRealTimeTracking();
+});
+
+function initializeSystem() {
+    console.log('初始化实时跟踪系统...');
+    updateSystemMetrics();
+    loadFlightsList();
+
+    // 设置定时更新
+    setInterval(updateSystemMetrics, 5000);
+    setInterval(updateLastUpdateTime, 1000);
+}
+
+function startRealTimeTracking() {
+    if (trackingActive) return;
+
+    console.log('开始实时跟踪...');
+    trackingActive = true;
+
+    // 连接全局WebSocket
+    connectAllFlightsWebSocket();
+
+    // 启动自动刷新
+    if (document.getElementById('autoRefresh').checked) {
+        startAutoRefresh();
+    }
+
+    // 模拟启动数据接收器
+    fetch('/api/start_tracking/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+    }).then(response => response.json())
+      .then(data => {
+          if (data.status === 'success') {
+              showSuccessMessage('跟踪已启动', '实时飞机跟踪系统已启动');
+          }
+      })
+      .catch(error => {
+          console.error('启动跟踪失败:', error);
+      });
+}
+
+function stopRealTimeTracking() {
+    if (!trackingActive) return;
+
+    console.log('停止实时跟踪...');
+    trackingActive = false;
+
+    // 关闭所有WebSocket连接
+    Object.values(websockets).forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+        }
+    });
+    websockets = {};
+
+    // 停止自动刷新
+    stopAutoRefresh();
+
+    fetch('/api/stop_tracking/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+    });
+
+    showSuccessMessage('跟踪已停止', '实时飞机跟踪系统已停止');
+}
+
+function connectAllFlightsWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/flights/all/`;
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = function(event) {
+        console.log('全局WebSocket连接已建立');
+        ws.send(JSON.stringify({type: 'get_active_flights'}));
+    };
+
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+    };
+
+    ws.onclose = function(event) {
+        console.log('全局WebSocket连接已关闭');
+        if (trackingActive) {
+            // 5秒后重连
+            setTimeout(connectAllFlightsWebSocket, 5000);
+        }
+    };
+
+    ws.onerror = function(error) {
+        console.error('WebSocket错误:', error);
+    };
+
+    websockets['all_flights'] = ws;
+}
+
+function handleWebSocketMessage(data) {
+    switch (data.type) {
+        case 'active_flights_list':
+            updateFlightsList(data.flights);
+            break;
+        case 'flight_status_update':
+            updateFlightStatus(data.flight_id, data.status);
+            break;
+        case 'new_flight_detected':
+            addNewFlight(data.flight);
+            break;
+        case 'connection_established':
+            console.log('WebSocket连接已确认:', data.message);
+            break;
+        case 'error':
+            console.error('WebSocket错误:', data.message);
+            showErrorMessage('连接错误', data.message);
+            break;
+    }
+}
+
+function updateFlightsList(flightsData) {
+    const container = document.getElementById('flightsList');
+    const selector = document.getElementById('flightSelector');
+
+    if (!flightsData || flightsData.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-muted py-4">
+                <i class="fas fa-plane-slash fa-2x"></i>
+                <p class="mt-2">暂无活跃飞机</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+    selector.innerHTML = '<option value="">全部飞机</option>';
+
+    flightsData.forEach(flight => {
+        flights[flight.flight_id] = flight;
+
+        // 更新飞行列表
+        html += `
+            <div class="flight-status-card card mb-2 ${flight.current_status === 'cruising' ? 'active' : ''}"
+                 id="flight-card-${flight.flight_id}">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1">${flight.flight_id}</h6>
+                            <small class="text-muted">${flight.callsign || 'N/A'}</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="confidence-indicator confidence-high"></span>
+                            <small>${flight.current_status}</small>
+                        </div>
+                    </div>
+                    <div class="row mt-2 text-muted small">
+                        <div class="col-6">
+                            <i class="fas fa-tachometer-alt"></i>
+                            ${flight.current_speed ? flight.current_speed.toFixed(1) + ' m/s' : 'N/A'}
+                        </div>
+                        <div class="col-6">
+                            <i class="fas fa-arrows-alt-v"></i>
+                            ${flight.current_altitude ? flight.current_altitude.toFixed(0) + ' m' : 'N/A'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // 更新选择器
+        selector.innerHTML += `<option value="${flight.flight_id}">${flight.flight_id}</option>`;
+    });
+
+    container.innerHTML = html;
+
+    // 自动选择第一架飞机
+    if (flightsData.length > 0 && !selectedFlight) {
+        selectedFlight = flightsData[0].flight_id;
+        selector.value = selectedFlight;
+        updateVisualization();
+    }
+}
+
+function updateVisualization() {
+    const view = document.getElementById('viewType').value;
+    const flightId = document.getElementById('flightSelector').value;
+
+    // 这里应该调用后端API获取可视化数据
+    fetch(`/api/get_visualization/?view=${view}&flight_id=${flightId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updatePlotlyChart(data.plot_data);
+            }
+        })
+        .catch(error => {
+            console.error('获取可视化数据失败:', error);
+        });
+}
+
+function updatePlotlyChart(plotData) {
+    const element = document.getElementById('plotlyChart');
+
+    if (plotData.error) {
+        element.innerHTML = `<div class="alert alert-danger">可视化错误: ${plotData.error}</div>`;
+        return;
+    }
+
+    Plotly.newPlot(element, plotData.data, plotData.layout, {responsive: true});
+}
+
+function switchFlight() {
+    selectedFlight = document.getElementById('flightSelector').value;
+    updateVisualization();
+}
+
+function switchView() {
+    currentView = document.getElementById('viewType').value;
+    updateVisualization();
+
+    // 更新标题
+    const titles = {
+        '3d': '3D轨迹视图',
+        '2d': '2D投影视图',
+        'confidence': '置信度分析'
+    };
+    document.getElementById('visualizationTitle').textContent = titles[currentView];
+}
+
+function startAutoRefresh() {
+    if (refreshInterval) return;
+
+    refreshInterval = setInterval(() => {
+        if (trackingActive && document.getElementById('autoRefresh').checked) {
+            updateVisualization();
+        }
+    }, 5000); // 每5秒刷新一次
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+function refreshAllData() {
+    loadFlightsList();
+    updateVisualization();
+    updateSystemMetrics();
+}
+
+function updateSystemMetrics() {
+    // 更新活跃飞机数量
+    const activeCount = Object.keys(flights).length;
+    document.getElementById('activeFlightsCount').textContent = activeCount;
+
+    // 更新总预测次数（模拟数据）
+    const totalPreds = Math.floor(Math.random() * 100) + 50;
+    document.getElementById('totalPredictions').textContent = totalPreds;
+
+    // 更新平均置信度（模拟数据）
+    const avgConf = (Math.random() * 20 + 75).toFixed(1);
+    document.getElementById('avgConfidence').textContent = avgConf + '%';
+
+    // 更新运行时间
+    const uptime = Date.now() - systemStartTime;
+    const minutes = Math.floor(uptime / 60000);
+    const seconds = Math.floor((uptime % 60000) / 1000);
+    document.getElementById('systemUptime').textContent =
+        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function updateLastUpdateTime() {
+    const now = new Date();
+    document.getElementById('lastUpdateTime').textContent =
+        now.toLocaleTimeString();
+}
+
+function showSuccessMessage(title, message) {
+    const alertHtml = `
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>${title}</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    document.querySelector('.container-fluid').insertAdjacentHTML('afterbegin', alertHtml);
+}
+
+function showErrorMessage(title, message) {
+    const alertHtml = `
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>${title}</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    document.querySelector('.container-fluid').insertAdjacentHTML('afterbegin', alertHtml);
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// 监听自动刷新开关
+document.getElementById('autoRefresh').addEventListener('change', function() {
+    if (this.checked && trackingActive) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
+    }
+});
+</script>
+{% endblock %}

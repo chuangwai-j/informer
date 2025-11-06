@@ -75,6 +75,7 @@ class Trainer:
         self.args = args
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
+        self._data_cache = {}  # 用于缓存数据集对象，防止重复清洗
 
     def _acquire_device(self):
         if self.args.use_gpu:
@@ -113,40 +114,30 @@ class Trainer:
         return model
 
     def _get_data(self, flag):
-        # 使用 csv_path 和 speed_min/speed_max
-        data_dict = {
-            'train': AircraftTrajectoryDataset(
-                csv_path=self.args.data_csv_path,
-                seq_len=self.args.seq_len,
-                label_len=self.args.label_len,
-                pred_len=self.args.pred_len,
-                mode='train',
-                scale=True,
-                speed_min=self.args.speed_min,
-                speed_max=self.args.speed_max
-            ),
-            'val': AircraftTrajectoryDataset(
-                csv_path=self.args.data_csv_path,
-                seq_len=self.args.seq_len,
-                label_len=self.args.label_len,
-                pred_len=self.args.pred_len,
-                mode='val',
-                scale=True,
-                speed_min=self.args.speed_min,
-                speed_max=self.args.speed_max
-            ),
-            'test': AircraftTrajectoryDataset(
-                csv_path=self.args.data_csv_path,
-                seq_len=self.args.seq_len,
-                label_len=self.args.label_len,
-                pred_len=self.args.pred_len,
-                mode='test',
-                scale=True,
-                speed_min=self.args.speed_min,
-                speed_max=self.args.speed_max
-            )
+        # 检查缓存，如果已存在，直接返回
+        if flag in self._data_cache:
+            return self._data_cache[flag]
+
+        print(f"--- 正在初始化 {flag} 数据集并进行清洗和标准化  ---")
+
+        data_kwargs = {
+            'csv_path': self.args.data_csv_path,
+            'seq_len': self.args.seq_len,
+            'label_len': self.args.label_len,
+            'pred_len': self.args.pred_len,
+            'mode': flag,
+            'scale': True,
+            'speed_min': self.args.speed_min,
+            'speed_max': self.args.speed_max
         }
-        return data_dict[flag]
+
+        # 仅实例化所需的 Dataset 对象
+        dataset = AircraftTrajectoryDataset(**data_kwargs)
+
+        # 缓存数据集对象
+        self._data_cache[flag] = dataset
+
+        return dataset
 
     def _select_optimizer(self):
         model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
@@ -157,6 +148,7 @@ class Trainer:
         return criterion
 
     def train(self):
+        # 首次调用 _get_data('train') 和 _get_data('val') 时会进行清洗和初始化
         train_data = self._get_data('train')
         val_data = self._get_data('val')
 
@@ -274,7 +266,7 @@ class Trainer:
         return total_loss
 
     def test(self):
-        # 重新加载测试数据 (确保使用与训练/验证相同的数据集参数)
+        # 仅在需要时调用 _get_data('test')，如果已缓存则直接获取
         test_data = self._get_data('test')
         test_loader = DataLoader(
             test_data,

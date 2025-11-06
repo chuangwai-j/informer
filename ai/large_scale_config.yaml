@@ -1,0 +1,117 @@
+# 大规模数据集训练配置
+
+## 模型配置 (针对大数据集优化)
+
+model:
+  enc_in: 4
+  dec_in: 4
+  c_out: 4
+  seq_len: 96
+  label_len: 48
+  out_len: 24
+
+  # 增加模型容量 (大数据集可以支持更复杂的模型)
+  factor: 5
+  d_model: 1024          # 512 -> 1024 (数据充足，可以增加)
+  n_heads: 16            # 8 -> 16
+  e_layers: 4            # 2 -> 4
+  d_layers: 2            # 1 -> 2
+  d_ff: 2048             # 512 -> 2048
+  dropout: 0.1           # 0.0 -> 0.1 (防止过拟合)
+  attn: 'prob'
+  embed: 'fixed'
+  freq: 'h'
+  activation: 'gelu'
+  output_attention: false
+  distil: true
+  mix: true
+
+## 训练配置 (大数据集专用)
+
+train:
+  train_epochs: 200      # 10 -> 200 (数据充足，可以充分训练)
+  batch_size: 64         # 16 -> 64 (数据多，可以增大批次)
+  patience: 20           # 3 -> 20 (更耐心等待收敛)
+  learning_rate: 0.0001  # 保持较小学习率
+  loss: 'MSE'
+  use_gpu: true
+  gpu: 0
+  num_workers: 8         # 0 -> 8 (并行数据加载)
+  early_stopping: 30     # 10 -> 30
+
+  # 学习率调度器
+  lr_scheduler: 'cosine'
+  min_lr: 0.00001        # 最小学习率
+  warmup_epochs: 10      # 预热轮数
+
+  # 梯度设置
+  max_grad_norm: 1.0     # 梯度裁剪
+
+  # 保存设置
+  checkpoint_freq: 10    # 每10轮保存一次检查点
+  save_best: true        # 只保存最佳模型
+
+## 数据配置
+
+data:
+  # 假设有多个数据文件
+  data_paths:
+    - '/mnt/d/model/wind_datas/sample_1_to_1000.csv'
+    - '/mnt/d/model/wind_datas/sample_1001_to_2000.csv'
+    - '/mnt/d/model/wind_datas/sample_2001_to_3000.csv'
+
+  # 数据统计
+  total_samples: 3000
+  sequences_per_sample: 100
+  total_sequences: 300000
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+  # 数据缓存
+  cache_dir: './ai/cache'
+  use_cache: true
+
+  # 数据增强
+  augmentation:
+    enabled: true
+    noise_level: 0.005
+    time_jitter: 1
+    window_overlap: true
+
+# 大数据集专用配置
+optimization:
+  # 混合精度训练
+  use_amp: true          # 使用自动混合精度
+  opt_level: 'O1'
+
+  # 分布式训练 (可选)
+  distributed: false     # 如果有多GPU
+  backend: 'nccl'
+
+  # 内存优化
+  pin_memory: true
+  persistent_workers: true
+
+# 监控和日志
+logging:
+  log_dir: './ai/logs'
+  tensorboard: true
+  wandb: false           # 可选启用wandb
+
+  # 记录频率
+  log_freq: 50           # 每50个batch记录一次
+  val_freq: 100          # 每100个batch验证一次
+
+# 实验设置
+experiment:
+  name: 'large_scale_informer'
+  version: 'v1.0'
+  description: '大规模飞机轨迹预测实验 - 几千样本，每样本百序列'
+
+  # 随机种子
+  seed: 42
+
+  # 可复现性
+  deterministic: true
+  benchmark: false

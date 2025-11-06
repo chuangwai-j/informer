@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+
+{% block title %}系统信息 - 实时飞机轨迹预测系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-info-circle"></i> 系统信息</h2>
+    <button class="btn btn-primary" onclick="refreshModelInfo()">
+        <i class="fas fa-sync-alt"></i> 刷新
+    </button>
+</div>
+
+{% if model_info %}
+<div class="row">
+    <!-- 基本信息 -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-cogs"></i> 基本信息</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>总参数量:</strong></td>
+                        <td>{{ model_info.model_params|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>可训练参数量:</strong></td>
+                        <td>{{ model_info.trainable_params|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>模型大小:</strong></td>
+                        <td>{{ model_info.model_size_mb|default:"未知" }} MB</td>
+                    </tr>
+                    <tr>
+                        <td><strong>计算设备:</strong></td>
+                        <td>{{ model_info.config.device|default:"未知" }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模型配置 -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-sliders-h"></i> 模型配置</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>输入序列长度:</strong></td>
+                        <td>{{ model_info.config.seq_len|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>标签长度:</strong></td>
+                        <td>{{ model_info.config.label_len|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>预测长度:</strong></td>
+                        <td>{{ model_info.config.pred_len|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>模型维度:</strong></td>
+                        <td>{{ model_info.config.d_model|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>注意力头数:</strong></td>
+                        <td>{{ model_info.config.n_heads|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>编码器层数:</strong></td>
+                        <td>{{ model_info.config.e_layers|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>解码器层数:</strong></td>
+                        <td>{{ model_info.config.d_layers|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>注意力机制:</strong></td>
+                        <td>{{ model_info.config.attn|default:"未知" }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 数据配置 -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-database"></i> 数据配置</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>数据文件路径:</strong></td>
+                        <td>{{ model_info.data_config.csv_path|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>最小速度限制:</strong></td>
+                        <td>{{ model_info.data_config.speed_min|default:"未知" }} m/s</td>
+                    </tr>
+                    <tr>
+                        <td><strong>最大速度限制:</strong></td>
+                        <td>{{ model_info.data_config.speed_max|default:"未知" }} m/s</td>
+                    </tr>
+                    <tr>
+                        <td><strong>数据加载器进程数:</strong></td>
+                        <td>{{ model_info.data_config.num_workers|default:"未知" }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 训练配置 -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-dumbbell"></i> 训练配置</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>批次大小:</strong></td>
+                        <td>{{ model_info.config.batch_size|default:"未知" }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>学习率:</strong></td>
+                        <td>0.0001 (默认)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>损失函数:</strong></td>
+                        <td>MSE (均方误差)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>优化器:</strong></td>
+                        <td>Adam</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 模型架构图 -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-project-diagram"></i> Informer模型架构</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-lightbulb"></i> Informer模型特点:</h6>
+                            <ul class="mb-0">
+                                <li><strong>ProbSparse注意力机制:</strong> 只计算关键查询的注意力，复杂度从O(L²)降低到O(L log L)</li>
+                                <li><strong>自注意力蒸馏:</strong> 通过卷积层减少序列长度，保留主导模式</li>
+                                <li><strong>生成式推理:</strong> 一步生成完整预测序列，避免累积误差</li>
+                                <li><strong>多头注意力:</strong> 并行学习不同的表示子空间</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center">
+                    <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjQwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4PSIyMCIgeT0iMjAiIGZpbGw9IiMwMDc1YjYiIHJ4PSI1Ii8+CiAgPHRleHQgeD0iOTUiIHk9IjUwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSI+RW5jb2Rpbmc8L3RleHQ+CiAgCiAgPHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSI0MCIgeD0iMjAiIHk9IjgwIiBmaWxsPSIjNTZjZWE3IiByeD0iNSIvPgogIDx0ZXh0IHg9Ijk1IiB5PSIxMDUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIj5Qcm9iQXR0ZW50aW9uPC90ZXh0PgogIAogIDxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNDAiIHg9IjIwIiB5PSIxMzAiIGZpbGw9IiM1NmNlYTciIHJ4PSI1Ii8+CiAgPHRleHQgeD0iOTUiIHk9IjE1NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkNvbnZFbmNvZGVyPC90ZXh0PgogIAogIDxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iNDAiIHg9IjIwIiB5PSIxODAiIGZpbGw9IiM1NmNlYTciIHJ4PSI1Ii8+CiAgPHRleHQgeD0iOTUiIHk9IjIwNSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkF0dGVudGlvbjwvdGV4dD4KICAKICA8cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjUwIiB4PSIyMCIgeT0iMjMwIiBmaWxsPSIjMjhlNzUxIiByeD0iNSIvPgogIDx0ZXh0IHg9Ijk1IiB5PSIyNjAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIj5EZWNvZGluZzwvdGV4dD4KICAKICA8cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjQwIiB4PSIyMCIgeT0iMjk4IiBmaWxsPSIjNWZjNzU3IiByeD0iNSIvPgogIDx0ZXh0IHg9Ijk1IiB5PSIzMjMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIj5NYXNrZWRBdHRlbnRpb248L3RleHQ+CiAgCiAgPHJlY3Qgd2lkdGg9IjE1MCIgaGVpZ2h0PSI0MCIgeD0iMjAiIHk9IjM0NiIgZmlsbD0iIzVmYzc1NyIgcng9IjUiLz4KICA8dGV4dCB4PSI5NSIgeT0iMzcxIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSI+Q3Jvc3NBdHRlbnRpb248L3RleHQ+CiAgCiAgPCEtLSBBcnJvd3MgLS0+CiAgPHBhdGggZD0iTSAxNzAgNDUgTCAyMzAgNDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHBhdGggZD0iTTE3MCAxMDAgTCAyMzAgMTAwIiBmaWxsPSJub25lIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0xNzAgMTUwIEwgMjMwIDE1MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cGF0aCBkPSJNMTcwIDIwMCBMIDIzMCAyMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHBhdGggZD0iTTE3MCAzMTggTCAyMzAgMzE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0xNzAgMzY2IEwgMjMwIDM2NiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz4KICAKICA8IS0tIElucHV0L091dHB1dCAtLT4KICA8dGV4dCB4PSIyMCIgeT0iMjAwIiBmb250LXNpemU9IjE0IiBmaWxsPSIjMzMzIj5JbnB1dDwvdGV4dD4KICA8dGV4dCB4PSI4MCIgeT0iMjAwIiBmb250LXNpemU9IjEyIiBmaWxsPSIjNjY2Ij5bQiwgTCwgRF08L3RleHQ+CiAgCiAgPHRleHQgeD0iMjAiIHk9IjQzMCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzMzMyI+T3V0cHV0PC90ZXh0PgogIDx0ZXh0IHg9IjgwIiB5PSI0MzAiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM2NjYiPltCLCBQLCBERF08L3RleHQ+Cjwvc3ZnPg=="
+                         alt="Informer Architecture" class="img-fluid">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    <h5><i class="fas fa-exclamation-triangle"></i> 无法获取模型信息</h5>
+    {% if error %}
+        <p class="mb-0">错误信息: {{ error }}</p>
+    {% else %}
+        <p class="mb-0">请检查模型文件是否存在，或者配置是否正确。</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshModelInfo() {
+    location.reload();
+}
+</script>
+{% endblock %}
